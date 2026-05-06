@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/mtesta/Documents/PracticasMinexVSC/**)",
+      "Read(//c/Users/mtesta/.claude/plugins/cache/ui-ux-pro-max-skill/ui-ux-pro-max/2.5.0/**)",
+      "Bash(python3 skills/ui-ux-pro-max/scripts/search.py \"presentation slideshow professional corporate dark animation transitions\" --design-system -p \"Sustentacion Minex\" -f markdown)",
+      "Bash(python skills/ui-ux-pro-max/scripts/search.py \"presentation slideshow professional corporate dark animation transitions\" --design-system -p \"Sustentacion Minex\" -f markdown)",
+      "Read(//c/Users/mtesta/.claude/plugins/cache/ui-ux-pro-max-skill/**)",
+      "Read(//c/Users/mtesta/.claude/plugins/cache/**)",
+      "Bash(find \"c:/Users/mtesta/.claude\" -name \"search.py\" 2>/dev/null | head -5)",
+      "Read(//c/Users/mtesta/.claude/**)"
+    ]
+  }
+}

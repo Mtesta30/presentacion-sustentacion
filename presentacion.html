@@ -1,0 +1,1302 @@
+﻿<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Implementación HTTPS/TLS — TrazBasProxyService</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#1B3A6B;
+    --navy-2:#142a4f;
+    --navy-ink:#0E1B2E;
+    --green:#27AE60;
+    --green-2:#1e8e4d;
+    --paper:#F7F5F0;
+    --paper-2:#EFEBE2;
+    --ink:#0E1B2E;
+    --muted:#5A6478;
+    --line:#D9D2C4;
+    --red:#C0392B;
+    --red-soft:#F4E3E0;
+    --green-soft:#E2F1E6;
+    --amber:#D9A441;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#0a0a0a;font-family:'Inter',sans-serif;color:var(--ink);overflow:hidden;height:100%;}
+
+  /* ── Presentation Engine ─────────────────────────── */
+  #deck{position:fixed;inset:0;background:#0a0a0a;overflow:hidden;}
+  #slides-rail{position:absolute;width:1920px;height:1080px;transform-origin:top left;}
+
+  .slide{
+    position:absolute;
+    inset:0;
+    width:1920px;height:1080px;
+    background:var(--paper);
+    overflow:hidden;
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    will-change:transform,opacity;
+    visibility:hidden;
+  }
+  .slide.is-active{visibility:visible;}
+
+  /* ── Navigation Controls ─────────────────────────── */
+  #nav-controls{
+    position:fixed;bottom:28px;left:50%;
+    translate:-50% 0;
+    z-index:1000;
+    display:flex;align-items:center;gap:14px;
+    background:rgba(14,27,46,.85);
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:999px;padding:11px 22px;
+    font-family:'JetBrains Mono',monospace;font-size:14px;color:#9aa6bd;
+    letter-spacing:.1em;
+    opacity:.55;transition:opacity 220ms;
+    user-select:none;
+  }
+  #nav-controls:hover{opacity:1;}
+  .nav-btn{
+    background:none;border:1px solid rgba(255,255,255,.18);
+    border-radius:50%;width:34px;height:34px;min-width:34px;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;color:#fff;
+    transition:background 150ms,border-color 150ms,transform 100ms;
+    padding:0;line-height:1;
+  }
+  .nav-btn:hover:not(:disabled){background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.35);}
+  .nav-btn:active:not(:disabled){transform:scale(.92);}
+  .nav-btn:disabled{opacity:.28;cursor:default;}
+  #slide-counter{min-width:60px;text-align:center;color:#c8d0de;font-weight:600;}
+  #key-hint{font-size:11px;color:rgba(255,255,255,.28);letter-spacing:.12em;padding-left:6px;border-left:1px solid rgba(255,255,255,.1);}
+
+  /* ── Progress Bar ─────────────────────────────────── */
+  #progress-bar{position:fixed;bottom:0;left:0;right:0;height:3px;background:rgba(255,255,255,.07);z-index:999;}
+  #progress-fill{height:100%;background:var(--green);transition:width 380ms cubic-bezier(.22,1,.36,1);width:0%;}
+
+  /* ── Image quality ─────────────────────────────────── */
+  .slide img{display:block;max-width:100%;height:auto;image-rendering:-webkit-optimize-contrast;}
+  /* Recurring chrome */
+  .chrome{
+    position:absolute;inset:0;
+    padding:80px 110px 116px;
+    display:flex;flex-direction:column;
+  }
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    font-family:'JetBrains Mono',monospace;
+    font-size:18px;color:var(--muted);
+    letter-spacing:.06em;
+    padding-bottom:24px;
+    border-bottom:1px solid var(--line);
+  }
+  .topbar .left{display:flex;align-items:center;gap:16px;}
+  .brand-mark{
+    width:28px;height:28px;border-radius:6px;
+    background:var(--navy);position:relative;display:inline-block;
+  }
+  .brand-mark::after{
+    content:"";position:absolute;inset:8px;border:2px solid var(--green);border-radius:50%;
+  }
+  .topbar .right{display:flex;align-items:center;gap:24px;}
+  .pill{
+    padding:6px 12px;border:1px solid var(--line);border-radius:999px;
+    font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;
+  }
+  .slide-num{color:var(--navy);font-weight:600;}
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:18px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--green-2);margin-top:48px;
+  }
+  h1.title{
+    font-size:80px;line-height:1.02;font-weight:700;margin:18px 0 0;
+    color:var(--navy-ink);letter-spacing:-.02em;
+    max-width:1500px;text-wrap:balance;
+  }
+  h2.title{
+    font-size:64px;line-height:1.05;font-weight:700;margin:18px 0 0;
+    color:var(--navy-ink);letter-spacing:-.02em;
+    max-width:1500px;text-wrap:balance;
+  }
+  .subtitle{font-size:28px;color:var(--muted);margin-top:18px;max-width:1300px;line-height:1.4;}
+  .footer{
+    position:absolute;left:110px;right:110px;bottom:48px;
+    display:flex;justify-content:space-between;align-items:center;
+    font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--muted);
+    letter-spacing:.1em;text-transform:uppercase;
+  }
+  .footer .bar{flex:1;height:1px;background:var(--line);margin:0 24px;}
+
+  /* Generic helpers */
+  .row{display:flex;gap:40px;}
+  .col{display:flex;flex-direction:column;gap:24px;}
+  .grow{flex:1;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  .navy{color:var(--navy);}
+  .green{color:var(--green-2);}
+  .muted{color:var(--muted);}
+  .num-circle{
+    width:44px;height:44px;border-radius:50%;
+    background:var(--navy);color:#fff;
+    display:inline-flex;align-items:center;justify-content:center;
+    font-family:'JetBrains Mono',monospace;font-weight:600;font-size:18px;
+    flex-shrink:0;
+  }
+  .check{color:var(--green-2);font-weight:700;}
+  .cross{color:var(--red);font-weight:700;}
+  /* table */
+  table.data{
+    width:100%;border-collapse:collapse;font-size:22px;
+  }
+  table.data th, table.data td{
+    text-align:left;padding:12px 18px;border-bottom:1px solid var(--line);vertical-align:middle;
+  }
+  table.data thead th{
+    font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);font-weight:500;
+    border-bottom:2px solid var(--navy);
+  }
+  table.data td.id{
+    font-family:'JetBrains Mono',monospace;color:var(--navy);font-weight:600;width:80px;
+  }
+  table.data tr.row-ok td{background:rgba(39,174,96,.05);}
+  /* card */
+  .card{
+    background:#fff;border:1px solid var(--line);border-radius:18px;
+    padding:36px;
+  }
+  .card.dark{background:var(--navy-ink);color:#fff;border-color:var(--navy-ink);}
+  .card.dark .muted{color:#9aa6bd;}
+  .badge{
+    display:inline-flex;align-items:center;gap:10px;
+    padding:8px 14px;border-radius:999px;
+    font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.1em;
+    text-transform:uppercase;
+  }
+  .badge.green{background:var(--green-soft);color:var(--green-2);}
+  .badge.red{background:var(--red-soft);color:var(--red);}
+  .badge.navy{background:#E5EAF3;color:var(--navy);}
+  .dot{width:10px;height:10px;border-radius:50%;background:currentColor;}
+</style>
+</head>
+<body>
+
+<div id="deck">
+<div id="slides-rail">
+
+<!-- ============== SLIDE 1 — PORTADA ============== -->
+<section class="slide" data-screen-label="01 Portada" style="background:var(--navy-ink);color:#fff;">
+  <!-- decorative grid -->
+  <svg viewBox="0 0 1920 1080" style="position:absolute;inset:0;width:100%;height:100%;opacity:.18;" preserveAspectRatio="none">
+    <defs>
+      <pattern id="g" width="80" height="80" patternUnits="userSpaceOnUse">
+        <path d="M 80 0 L 0 0 0 80" fill="none" stroke="#3a4a6b" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#g)"/>
+  </svg>
+  <!-- accent block -->
+  <div style="position:absolute;left:0;top:0;width:14px;height:100%;background:var(--green);"></div>
+
+  <div class="chrome" style="padding:100px 130px;">
+    <div class="topbar" style="border-color:rgba(255,255,255,.12);color:#9aa6bd;">
+      <div class="left">
+        <span class="brand-mark" style="background:#fff;"></span>
+        <span style="color:#fff;letter-spacing:.2em;font-weight:600;">MINEX</span>
+        <span style="color:#9aa6bd;">·</span>
+        <span>PRÁCTICAS PROFESIONALES</span>
+      </div>
+      <div class="right">
+        <span class="pill" style="border-color:rgba(255,255,255,.18);color:#9aa6bd;">Sustentación 2026</span>
+      </div>
+    </div>
+
+    <div style="margin-top:120px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:20px;letter-spacing:.22em;color:var(--green);text-transform:uppercase;">
+        Informe de Prácticas Profesionales
+      </div>
+      <h1 style="font-size:108px;line-height:1.0;font-weight:800;margin:36px 0 0;letter-spacing:-.025em;max-width:1600px;color:#fff;">
+        Implementación de HTTPS/TLS<br>
+        en el servicio <span style="color:var(--green);">TrazBasProxyService</span>
+      </h1>
+      <div style="margin-top:36px;font-size:32px;line-height:1.4;color:#c8d0de;max-width:1400px;font-weight:300;">
+        Transmisión segura de datos entre Trasbaz y TrazCloud
+      </div>
+    </div>
+
+    <div style="position:absolute;left:130px;right:130px;bottom:90px;display:flex;justify-content:space-between;align-items:flex-end;">
+      <div style="display:flex;gap:90px;">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.18em;color:#9aa6bd;text-transform:uppercase;">Autor</div>
+          <div style="font-size:30px;font-weight:600;margin-top:8px;">Mario Andres Testa Vargas</div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.18em;color:#9aa6bd;text-transform:uppercase;">Institución</div>
+          <div style="font-size:30px;font-weight:600;margin-top:8px;">Politécnico Grancolombiano</div>
+        </div>
+      </div>
+      <!-- lock icon -->
+      <svg width="180" height="180" viewBox="0 0 100 100" fill="none" style="opacity:.95;">
+        <rect x="20" y="44" width="60" height="44" rx="6" stroke="#27AE60" stroke-width="3"/>
+        <path d="M32 44 V32 a18 18 0 0 1 36 0 V44" stroke="#27AE60" stroke-width="3" fill="none"/>
+        <circle cx="50" cy="64" r="5" fill="#27AE60"/>
+        <path d="M50 69 V76" stroke="#27AE60" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 2 — AGENDA ============== -->
+<section class="slide" data-screen-label="02 Agenda">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>MINEX · SUSTENTACIÓN</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">02</span> / 19</span></div>
+    </div>
+    <h1 class="title">Contenido de la presentación</h1>
+
+    <div style="margin-top:80px;display:grid;grid-template-columns:1fr 1fr;gap:24px 80px;">
+      <!-- col 1 -->
+      <div class="col" style="gap:18px;">
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle">01</span><span style="font-size:32px;font-weight:500;">Contexto organizacional</span></div>
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle">02</span><span style="font-size:32px;font-weight:500;">Problema identificado</span></div>
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle">03</span><span style="font-size:32px;font-weight:500;">Objetivos</span></div>
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle">04</span><span style="font-size:32px;font-weight:500;">Marco teórico</span></div>
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;"><span class="num-circle">05</span><span style="font-size:32px;font-weight:500;">Metodología</span></div>
+      </div>
+      <!-- col 2 -->
+      <div class="col" style="gap:18px;">
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="background:var(--green);">06</span><span style="font-size:32px;font-weight:500;">Diagnóstico inicial</span></div>
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="background:var(--green);">07</span><span style="font-size:32px;font-weight:500;">Implementación</span></div>
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="background:var(--green);">08</span><span style="font-size:32px;font-weight:500;">Resultados</span></div>
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="background:var(--green);">09</span><span style="font-size:32px;font-weight:500;">Análisis</span></div>
+        <div style="display:flex;align-items:center;gap:24px;padding:18px 0;"><span class="num-circle" style="background:var(--green);">10</span><span style="font-size:32px;font-weight:500;">Conclusiones y recomendaciones</span></div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>02 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 3 — CONTEXTO ============== -->
+<section class="slide" data-screen-label="03 Contexto organizacional">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>01 · CONTEXTO</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">03</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Contexto organizacional</div>
+    <h1 class="title">¿Dónde se desarrolló el proyecto?</h1>
+
+    <div style="margin-top:60px;display:grid;grid-template-columns:1.05fr .95fr;gap:80px;flex:1;align-items:center;">
+      <!-- diagram -->
+      <div style="position:relative;">
+        <div style="display:flex;flex-direction:column;gap:18px;">
+          <div class="pipe-node" style="background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:22px 28px;display:flex;align-items:center;gap:20px;">
+            <svg width="40" height="40" viewBox="0 0 40 40"><rect x="6" y="14" width="28" height="18" rx="2" fill="none" stroke="#1B3A6B" stroke-width="2"/><path d="M10 14 V8 H30 V14" stroke="#1B3A6B" stroke-width="2" fill="none"/><path d="M14 23 H26" stroke="#1B3A6B" stroke-width="2"/></svg>
+            <div>
+              <div style="font-size:24px;font-weight:600;color:var(--navy-ink);">Básculas industriales</div>
+              <div class="mono muted" style="font-size:15px;">Pesaje en planta</div>
+            </div>
+          </div>
+          <div style="text-align:center;color:var(--muted);font-size:22px;">↓</div>
+
+          <div class="pipe-node" style="background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:22px 28px;display:flex;align-items:center;gap:20px;">
+            <svg width="40" height="40" viewBox="0 0 40 40"><rect x="6" y="6" width="28" height="28" rx="3" fill="none" stroke="#1B3A6B" stroke-width="2"/><path d="M14 14 H26 M14 20 H26 M14 26 H22" stroke="#1B3A6B" stroke-width="2"/></svg>
+            <div>
+              <div style="font-size:24px;font-weight:600;color:var(--navy-ink);">Software TRASBAZ</div>
+              <div class="mono muted" style="font-size:15px;">Captura de datos de pesaje</div>
+            </div>
+          </div>
+          <div style="text-align:center;color:var(--muted);font-size:22px;">↓</div>
+
+          <!-- focus node -->
+          <div class="pipe-node" style="background:var(--navy);color:#fff;border:1.5px solid var(--navy);border-radius:14px;padding:26px 28px;display:flex;align-items:center;gap:20px;position:relative;box-shadow:0 16px 40px -20px rgba(27,58,107,.5);">
+            <svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="14" fill="none" stroke="#27AE60" stroke-width="2"/><path d="M14 20 H26 M20 14 V26" stroke="#27AE60" stroke-width="2"/></svg>
+            <div style="flex:1;">
+              <div style="font-size:26px;font-weight:700;">TrazBasProxyService</div>
+              <div class="mono" style="font-size:15px;color:#9fc7a6;">Foco del proyecto · WCF (.NET 4.7) sobre IIS 10</div>
+            </div>
+            <div style="background:var(--green);color:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;border-radius:6px;">Foco</div>
+          </div>
+          <div style="text-align:center;color:var(--muted);font-size:22px;">↓</div>
+
+          <div class="pipe-node" style="background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:22px 28px;display:flex;align-items:center;gap:20px;">
+            <svg width="40" height="40" viewBox="0 0 40 40"><rect x="6" y="10" width="28" height="20" rx="3" fill="none" stroke="#1B3A6B" stroke-width="2"/><path d="M6 17 H34" stroke="#1B3A6B" stroke-width="2"/><circle cx="11" cy="13.5" r="1.2" fill="#1B3A6B"/></svg>
+            <div>
+              <div style="font-size:24px;font-weight:600;color:var(--navy-ink);">API REST · TrazCloud</div>
+              <div class="mono muted" style="font-size:15px;">Microsoft Azure ☁</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- text -->
+      <div class="col" style="gap:28px;">
+        <div style="font-size:30px;line-height:1.45;color:var(--navy-ink);font-weight:500;">
+          Minex utiliza básculas industriales para control de pesaje. Los datos viajan a través de un puente WCF hacia la nube.
+        </div>
+        <div class="col" style="gap:18px;font-size:22px;color:var(--ink);">
+          <div style="display:flex;gap:18px;align-items:flex-start;"><span style="color:var(--green-2);font-weight:700;">›</span><span><b>Trasbaz</b> captura los datos y los envía a TrazCloud (Azure).</span></div>
+          <div style="display:flex;gap:18px;align-items:flex-start;"><span style="color:var(--green-2);font-weight:700;">›</span><span><b>TrazBasProxyService</b> actúa como puente de comunicación.</span></div>
+          <div style="display:flex;gap:18px;align-items:flex-start;"><span style="color:var(--green-2);font-weight:700;">›</span><span>Tecnología: <span class="mono">WCF (.NET 4.7)</span> sobre <span class="mono">IIS 10</span>.</span></div>
+        </div>
+        <div style="margin-top:8px;padding:24px 28px;background:var(--paper-2);border-left:4px solid var(--navy);border-radius:6px;">
+          <div class="mono" style="font-size:14px;letter-spacing:.14em;color:var(--navy);text-transform:uppercase;">Stack técnico</div>
+          <div style="font-size:22px;margin-top:8px;color:var(--ink);">basicHttpBinding · HTTP.sys · Windows Server</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>03 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 4 — PROBLEMA ============== -->
+<section class="slide" data-screen-label="04 Problema">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>02 · PROBLEMA</span></div>
+      <div class="right">
+        <span class="badge red"><span class="dot"></span>OWASP Top 10 · A02:2021</span>
+        <span class="pill"><span class="slide-num">04</span> / 19</span>
+      </div>
+    </div>
+    <div class="eyebrow" style="color:var(--red);">Problema identificado</div>
+    <h1 class="title">Comunicación sin cifrado</h1>
+
+    <div style="margin-top:60px;display:grid;grid-template-columns:1fr 1fr;gap:48px;flex:1;">
+      <!-- left: situación -->
+      <div class="card" style="background:#fff;border-color:var(--red-soft);">
+        <div class="badge red"><span class="dot"></span>Situación encontrada</div>
+        <div class="col" style="gap:22px;margin-top:28px;font-size:24px;">
+          <div style="display:flex;gap:18px;align-items:flex-start;"><span class="cross" style="font-size:28px;">✗</span><span>Servicio operando en <b class="mono">HTTP puro</b> (puerto 80)</span></div>
+          <div style="display:flex;gap:18px;align-items:flex-start;"><span class="cross" style="font-size:28px;">✗</span><span>Datos viajando en <b>texto plano</b> por la red</span></div>
+          <div style="display:flex;gap:18px;align-items:flex-start;"><span class="cross" style="font-size:28px;">✗</span><span>Contrato <b class="mono">WSDL</b> público sin autenticación</span></div>
+          <div style="display:flex;gap:18px;align-items:flex-start;"><span class="cross" style="font-size:28px;">✗</span><span>Cabeceras revelan tecnología del servidor</span></div>
+          <div style="display:flex;gap:18px;align-items:flex-start;"><span class="cross" style="font-size:28px;">✗</span><span>Sin <b>certificado SSL</b> instalado</span></div>
+        </div>
+      </div>
+
+      <!-- right: riesgo -->
+      <div class="card dark" style="background:#2c1416;border-color:#3a1c1f;display:flex;flex-direction:column;">
+        <div class="badge" style="background:rgba(192,57,43,.2);color:#ff8c7e;"><span class="dot"></span>Riesgo</div>
+        <div style="margin-top:36px;font-size:34px;line-height:1.35;color:#fff;font-weight:300;font-family:'Inter',sans-serif;">
+          <span style="color:var(--red);font-size:80px;line-height:0;vertical-align:-32px;font-family:Georgia,serif;">"</span>
+          Cualquier equipo en la red interna puede <b style="color:#ff8c7e;font-weight:600;">interceptar y leer la totalidad</b> de las comunicaciones, incluyendo credenciales y datos de pesaje.
+        </div>
+        <div style="flex:1;"></div>
+        <div style="margin-top:36px;padding-top:24px;border-top:1px solid #3a1c1f;display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <div class="mono" style="font-size:13px;letter-spacing:.18em;color:#9aa6bd;text-transform:uppercase;">Categoría</div>
+            <div style="font-size:22px;color:#fff;margin-top:4px;font-weight:600;">Cryptographic Failures</div>
+          </div>
+          <!-- cracked lock icon -->
+          <svg width="80" height="80" viewBox="0 0 100 100" fill="none">
+            <rect x="20" y="44" width="60" height="44" rx="6" stroke="#ff8c7e" stroke-width="3"/>
+            <path d="M32 44 V32 a18 18 0 0 1 32 -10" stroke="#ff8c7e" stroke-width="3" fill="none"/>
+            <path d="M44 58 L56 74 M56 58 L44 74" stroke="#C0392B" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>04 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 5 — OBJETIVOS ============== -->
+<section class="slide" data-screen-label="05 Objetivos">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>03 · OBJETIVOS</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">05</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Objetivos</div>
+    <h1 class="title">¿Qué se propuso lograr?</h1>
+
+    <div style="margin-top:48px;display:grid;grid-template-columns:1.1fr 1fr;gap:64px;flex:1;">
+      <!-- general -->
+      <div>
+        <div class="badge navy">Objetivo general</div>
+        <div style="margin-top:28px;font-size:34px;line-height:1.35;color:var(--navy-ink);font-weight:400;border-left:4px solid var(--green);padding-left:28px;">
+          Implementar <b style="color:var(--navy);">HTTPS/TLS</b> sobre TrazBasProxyService mediante configuración de IIS y <span class="mono">web.config</span>, <b>sin modificar el código fuente</b>, validando la mejora con métricas cuantitativas.
+        </div>
+      </div>
+      <!-- específicos -->
+      <div>
+        <div class="badge navy">Objetivos específicos</div>
+        <div class="col" style="gap:14px;margin-top:28px;font-size:21px;">
+          <div style="display:flex;gap:18px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;">01</span><span>Medir el estado inicial de seguridad (8 métricas)</span></div>
+          <div style="display:flex;gap:18px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;">02</span><span>Instalar certificado SSL en el servidor</span></div>
+          <div style="display:flex;gap:18px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;">03</span><span>Configurar HTTPS en puerto 443</span></div>
+          <div style="display:flex;gap:18px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;">04</span><span>Implementar redirección HTTP → HTTPS (301)</span></div>
+          <div style="display:flex;gap:18px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;">05</span><span>Configurar cabeceras de seguridad HTTP</span></div>
+          <div style="display:flex;gap:18px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;">06</span><span>Bloquear verbos inseguros (TRACE)</span></div>
+          <div style="display:flex;gap:18px;align-items:center;padding:14px 0;"><span class="num-circle" style="width:36px;height:36px;font-size:14px;background:var(--green);">07</span><span>Documentar guía para servidor de producción</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>05 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 6 — MARCO TEÓRICO 1 ============== -->
+<section class="slide" data-screen-label="06 Marco teorico 1">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>04 · MARCO TEÓRICO · I</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">06</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Marco teórico · parte 1</div>
+    <h1 class="title">Conceptos clave</h1>
+
+    <div style="margin-top:54px;display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:32px;flex:1;">
+      <!-- HTTP vs HTTPS -->
+      <div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;">
+          <div style="padding:30px 32px;background:var(--red-soft);">
+            <div class="badge red" style="background:rgba(192,57,43,.15);"><span class="dot"></span>HTTP</div>
+            <div style="margin-top:24px;font-size:22px;line-height:1.6;color:var(--ink);">
+              <div class="mono" style="font-weight:600;">Puerto 80</div>
+              <div>Texto plano</div>
+              <div>Sin autenticación</div>
+              <div style="color:var(--red);font-weight:600;">Vulnerable</div>
+            </div>
+          </div>
+          <div style="padding:30px 32px;background:var(--green-soft);border-left:1px dashed var(--line);">
+            <div class="badge green"><span class="dot"></span>HTTPS</div>
+            <div style="margin-top:24px;font-size:22px;line-height:1.6;color:var(--ink);">
+              <div class="mono" style="font-weight:600;">Puerto 443</div>
+              <div>Cifrado TLS</div>
+              <div>Certificado SSL</div>
+              <div style="color:var(--green-2);font-weight:600;">Seguro</div>
+            </div>
+          </div>
+        </div>
+        <div style="padding:24px 32px;background:#fff;border-top:1px solid var(--line);display:flex;align-items:center;gap:18px;">
+          <svg width="32" height="32" viewBox="0 0 40 40"><path d="M8 20 L18 20 M22 20 L32 20" stroke="#C0392B" stroke-width="2"/><path d="M28 14 L34 20 L28 26" stroke="#27AE60" stroke-width="2" fill="none"/></svg>
+          <div style="font-size:18px;color:var(--muted);">Migración protocolo aplicación → transporte cifrado</div>
+        </div>
+      </div>
+
+      <!-- WCF -->
+      <div class="card">
+        <div class="badge navy">WCF</div>
+        <div style="margin-top:16px;font-size:22px;color:var(--navy-ink);font-weight:600;">Windows Communication Foundation</div>
+        <div style="margin-top:24px;font-size:20px;color:var(--muted);line-height:1.5;">Framework Microsoft para servicios SOAP.</div>
+        <div style="margin-top:28px;padding:20px;background:var(--navy-ink);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:16px;color:#cfe1d5;line-height:1.6;">
+          <div><span style="color:#9aa6bd;">binding:</span> basicHttpBinding</div>
+          <div style="margin-top:8px;"><span style="color:#9aa6bd;">security mode:</span> <span style="color:#5fd97a;">"Transport"</span></div>
+        </div>
+      </div>
+
+      <!-- IIS 10 -->
+      <div class="card">
+        <div class="badge navy">IIS 10</div>
+        <div style="margin-top:16px;font-size:22px;color:var(--navy-ink);font-weight:600;">Internet Information Services</div>
+        <div style="margin-top:24px;font-size:20px;color:var(--muted);line-height:1.5;">Servidor web de Microsoft.</div>
+        <div class="col" style="gap:14px;margin-top:28px;font-size:18px;">
+          <div style="display:flex;gap:14px;"><span style="color:var(--green-2);">›</span><span>Gestiona <b>bindings</b> HTTP/HTTPS</span></div>
+          <div style="display:flex;gap:14px;"><span style="color:var(--green-2);">›</span><span><span class="mono">HTTP.sys</span> termina TLS en kernel</span></div>
+          <div style="display:flex;gap:14px;"><span style="color:var(--green-2);">›</span><span>Configuración via <span class="mono">web.config</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>06 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 7 — MARCO TEÓRICO 2 ============== -->
+<section class="slide" data-screen-label="07 Marco teorico 2">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>04 · MARCO TEÓRICO · II</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">07</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Marco teórico · parte 2</div>
+    <h1 class="title">OWASP y cabeceras de seguridad</h1>
+
+    <div style="margin-top:48px;display:grid;grid-template-columns:.95fr 1.05fr;gap:56px;flex:1;">
+      <!-- OWASP -->
+      <div class="card dark" style="display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;gap:18px;">
+          <div style="width:64px;height:64px;border-radius:14px;background:#fff;display:flex;align-items:center;justify-content:center;">
+            <!-- shield -->
+            <svg width="40" height="40" viewBox="0 0 40 40"><path d="M20 4 L34 10 V22 C34 30 28 35 20 38 C12 35 6 30 6 22 V10 Z" fill="#1B3A6B"/><path d="M14 21 L18 25 L26 16" stroke="#27AE60" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div>
+            <div class="mono" style="font-size:14px;letter-spacing:.18em;color:#9aa6bd;text-transform:uppercase;">OWASP Top 10</div>
+            <div style="font-size:32px;font-weight:700;color:#fff;">A02:2021</div>
+          </div>
+        </div>
+        <div style="margin-top:36px;font-size:30px;font-weight:700;color:#fff;">Cryptographic Failures</div>
+        <div style="margin-top:24px;font-size:24px;line-height:1.4;color:#c8d0de;border-left:3px solid var(--green);padding-left:20px;">
+          Falla al proteger datos en tránsito mediante cifrado adecuado.
+        </div>
+        <div style="flex:1;"></div>
+        <div style="margin-top:32px;padding-top:24px;border-top:1px solid #2a3b5a;font-size:18px;color:#9aa6bd;">
+          Categoría que aborda este proyecto
+        </div>
+      </div>
+
+      <!-- headers -->
+      <div>
+        <div class="badge navy">Cabeceras de seguridad implementadas</div>
+        <table class="data" style="margin-top:20px;font-size:21px;">
+          <thead><tr><th style="width:46%">Cabecera</th><th>Protege contra</th></tr></thead>
+          <tbody>
+            <tr><td class="mono navy" style="font-weight:600;">Strict-Transport-Security</td><td>SSL Stripping / downgrade</td></tr>
+            <tr><td class="mono navy" style="font-weight:600;">X-Frame-Options</td><td>Clickjacking</td></tr>
+            <tr><td class="mono navy" style="font-weight:600;">X-Content-Type-Options</td><td>MIME Sniffing</td></tr>
+            <tr><td class="mono navy" style="font-weight:600;">X-XSS-Protection</td><td>Cross-Site Scripting</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:28px;display:flex;gap:14px;align-items:center;color:var(--green-2);font-size:18px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--green);"></span>
+          <span>4 cabeceras · cobertura completa</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>07 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 8 — METODOLOGÍA ============== -->
+<section class="slide" data-screen-label="08 Metodologia">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>05 · METODOLOGÍA</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">08</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Metodología</div>
+    <h1 class="title">Enfoque cuantitativo: 8 métricas medibles</h1>
+
+    <div style="margin-top:28px;display:grid;grid-template-columns:.85fr 1.15fr;gap:48px;flex:1;min-height:0;overflow:hidden;">
+      <!-- design -->
+      <div>
+        <div class="badge navy">Diseño de investigación</div>
+        <div style="margin-top:18px;display:flex;flex-direction:column;gap:10px;">
+          <div style="background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:16px 22px;">
+            <div class="mono" style="font-size:12px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;">Etapa 1</div>
+            <div style="font-size:22px;font-weight:700;color:var(--navy);margin-top:4px;">PRETEST</div>
+            <div style="font-size:16px;color:var(--muted);">Medición ANTES</div>
+          </div>
+          <div style="text-align:center;color:var(--muted);font-size:20px;">↓</div>
+          <div style="background:var(--navy);color:#fff;border-radius:12px;padding:16px 22px;">
+            <div class="mono" style="font-size:12px;letter-spacing:.18em;color:#9fc7a6;text-transform:uppercase;">Etapa 2</div>
+            <div style="font-size:22px;font-weight:700;margin-top:4px;">INTERVENCIÓN</div>
+            <div style="font-size:16px;color:#c8d0de;">Implementación HTTPS</div>
+          </div>
+          <div style="text-align:center;color:var(--muted);font-size:20px;">↓</div>
+          <div style="background:#fff;border:1.5px solid var(--green);border-radius:12px;padding:16px 22px;">
+            <div class="mono" style="font-size:12px;letter-spacing:.18em;color:var(--green-2);text-transform:uppercase;">Etapa 3</div>
+            <div style="font-size:22px;font-weight:700;color:var(--green-2);margin-top:4px;">POSTEST</div>
+            <div style="font-size:16px;color:var(--muted);">Medición DESPUÉS</div>
+          </div>
+        </div>
+        <div style="margin-top:18px;padding:14px 20px;background:var(--paper-2);border-radius:10px;font-size:16px;">
+          <span class="mono navy" style="font-weight:600;">Herramientas</span>
+          <span style="color:var(--muted);"> · PowerShell 5.1 · curl 8.9.1 · Postman</span>
+        </div>
+      </div>
+
+      <!-- metrics table -->
+      <div>
+        <div class="badge navy">Las 8 métricas (M1–M8)</div>
+        <table class="data" style="margin-top:14px;font-size:17px;">
+          <thead><tr><th style="width:60px;">ID</th><th>Qué mide</th><th style="width:32%;">Objetivo</th></tr></thead>
+          <tbody>
+            <tr><td class="id">M1</td><td>Puertos HTTP expuestos</td><td>Sin exposición directa</td></tr>
+            <tr><td class="id">M2</td><td>Puertos HTTPS activos</td><td>≥ 1 activo</td></tr>
+            <tr><td class="id">M3</td><td>Cabeceras de seguridad</td><td>4 de 4</td></tr>
+            <tr><td class="id">M4</td><td>Verbos bloqueados</td><td>TRACE bloqueado</td></tr>
+            <tr><td class="id">M5</td><td>Código HTTP puerto 80</td><td>301 redirect</td></tr>
+            <tr><td class="id">M6</td><td>Acceso HTTPS</td><td>200 OK</td></tr>
+            <tr><td class="id">M7</td><td>WSDL por HTTP</td><td>No accesible directo</td></tr>
+            <tr><td class="id">M8</td><td>Vigencia certificado</td><td>&gt; 0 días</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>08 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 9 — DIAGNÓSTICO ============== -->
+<section class="slide" data-screen-label="09 Diagnostico inicial">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>06 · DIAGNÓSTICO INICIAL</span></div>
+      <div class="right"><span class="badge red"><span class="dot"></span>ANTES</span><span class="pill"><span class="slide-num">09</span> / 19</span></div>
+    </div>
+    <div class="eyebrow" style="color:var(--red);">Diagnóstico inicial</div>
+    <h1 class="title">Estado <span style="color:var(--red);">ANTES</span> de la implementación</h1>
+
+    <div style="margin-top:40px;display:grid;grid-template-columns:1.4fr .9fr;gap:56px;flex:1;">
+      <div>
+        <table class="data" style="font-size:21px;">
+          <thead><tr><th style="width:60px;">ID</th><th>Métrica</th><th>Valor</th><th style="width:80px;text-align:center;">✓/✗</th></tr></thead>
+          <tbody>
+            <tr><td class="id">M1</td><td>Puertos HTTP expuestos</td><td class="mono">1 (servicio directo)</td><td style="text-align:center;"><span class="cross" style="font-size:24px;">✗</span></td></tr>
+            <tr><td class="id">M2</td><td>Puertos HTTPS activos</td><td class="mono">0</td><td style="text-align:center;"><span class="cross" style="font-size:24px;">✗</span></td></tr>
+            <tr><td class="id">M3</td><td>Cabeceras de seguridad</td><td class="mono">0 de 4</td><td style="text-align:center;"><span class="cross" style="font-size:24px;">✗</span></td></tr>
+            <tr><td class="id">M4</td><td>Verbos bloqueados</td><td class="mono">TRACE → 401</td><td style="text-align:center;"><span class="cross" style="font-size:24px;">✗</span></td></tr>
+            <tr><td class="id">M5</td><td>Código HTTP</td><td class="mono">200 OK</td><td style="text-align:center;"><span class="cross" style="font-size:24px;">✗</span></td></tr>
+            <tr><td class="id">M6</td><td>HTTPS disponible</td><td class="mono">No</td><td style="text-align:center;"><span class="cross" style="font-size:24px;">✗</span></td></tr>
+            <tr><td class="id">M7</td><td>WSDL por HTTP</td><td class="mono">Sí (público)</td><td style="text-align:center;"><span class="cross" style="font-size:24px;">✗</span></td></tr>
+            <tr><td class="id">M8</td><td>Certificado SSL</td><td class="mono">0 días</td><td style="text-align:center;"><span class="cross" style="font-size:24px;">✗</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- score panel -->
+      <div class="card dark" style="background:#2c1416;border-color:#3a1c1f;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;">
+        <div class="mono" style="font-size:14px;letter-spacing:.22em;color:#ff8c7e;text-transform:uppercase;">Resultado pretest</div>
+        <div style="margin-top:24px;font-size:200px;line-height:.95;font-weight:800;color:#fff;letter-spacing:-.04em;">
+          0<span style="color:#ff8c7e;">/8</span>
+        </div>
+        <div style="font-size:24px;color:#fff;margin-top:8px;font-weight:600;">métricas conformes</div>
+        <!-- bar -->
+        <div style="margin-top:36px;width:100%;height:14px;background:#3a1c1f;border-radius:7px;overflow:hidden;">
+          <div style="width:0%;height:100%;background:var(--red);"></div>
+        </div>
+        <div class="mono" style="margin-top:14px;font-size:16px;color:#ff8c7e;">0% CONFORMIDAD</div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>09 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 10 — IMPLEMENTACIÓN ============== -->
+<section class="slide" data-screen-label="10 Implementacion">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>07 · IMPLEMENTACIÓN</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">10</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Implementación</div>
+    <h1 class="title">¿Cómo se resolvió? — 6 fases</h1>
+
+    <div style="margin-top:60px;flex:1;display:flex;flex-direction:column;justify-content:center;">
+      <!-- phases timeline -->
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:18px;position:relative;">
+        <!-- connecting line -->
+        <div style="position:absolute;top:42px;left:5%;right:5%;height:2px;background:var(--line);z-index:0;"></div>
+        <div style="position:absolute;top:42px;left:5%;right:5%;height:2px;background:linear-gradient(90deg,var(--navy),var(--green));z-index:0;"></div>
+
+        <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;">
+          <div style="width:84px;height:84px;border-radius:50%;background:var(--navy);color:#fff;font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center;border:6px solid var(--paper);">F1</div>
+          <div style="margin-top:20px;font-size:20px;font-weight:600;color:var(--navy-ink);line-height:1.3;">Generar certificado SSL</div>
+          <div style="margin-top:8px;font-size:16px;color:var(--muted);">Autofirmado · RSA 2048 · 2 años</div>
+        </div>
+        <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;">
+          <div style="width:84px;height:84px;border-radius:50%;background:var(--navy);color:#fff;font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center;border:6px solid var(--paper);">F2</div>
+          <div style="margin-top:20px;font-size:20px;font-weight:600;color:var(--navy-ink);line-height:1.3;">Configurar binding HTTPS</div>
+          <div style="margin-top:8px;font-size:16px;color:var(--muted);">IIS · puerto 443</div>
+        </div>
+        <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;">
+          <div style="width:84px;height:84px;border-radius:50%;background:var(--navy);color:#fff;font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center;border:6px solid var(--paper);">F3</div>
+          <div style="margin-top:20px;font-size:20px;font-weight:600;color:var(--navy-ink);line-height:1.3;">Redirección HTTP → HTTPS</div>
+          <div style="margin-top:8px;font-size:16px;color:var(--muted);">Global.asax · 301</div>
+        </div>
+        <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;">
+          <div style="width:84px;height:84px;border-radius:50%;background:#22844f;color:#fff;font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center;border:6px solid var(--paper);">F4</div>
+          <div style="margin-top:20px;font-size:20px;font-weight:600;color:var(--navy-ink);line-height:1.3;">Aplicar cabeceras</div>
+          <div style="margin-top:8px;font-size:16px;color:var(--muted);">web.config · 4 headers</div>
+        </div>
+        <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;">
+          <div style="width:84px;height:84px;border-radius:50%;background:var(--green);color:#fff;font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center;border:6px solid var(--paper);">F5</div>
+          <div style="margin-top:20px;font-size:20px;font-weight:600;color:var(--navy-ink);line-height:1.3;">Bloquear verbo TRACE</div>
+          <div style="margin-top:8px;font-size:16px;color:var(--muted);">requestFiltering</div>
+        </div>
+        <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;">
+          <div style="width:84px;height:84px;border-radius:50%;background:var(--green);color:#fff;font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center;border:6px solid var(--paper);">F6</div>
+          <div style="margin-top:20px;font-size:20px;font-weight:600;color:var(--navy-ink);line-height:1.3;">Verificación integral</div>
+          <div style="margin-top:8px;font-size:16px;color:var(--muted);">curl + Postman</div>
+        </div>
+      </div>
+
+      <!-- key fact -->
+      <div style="margin-top:80px;background:var(--green-soft);border-left:6px solid var(--green);border-radius:8px;padding:32px 40px;display:flex;align-items:center;gap:28px;">
+        <svg width="56" height="56" viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#27AE60"/><path d="M12 20.5 L17.5 26 L28 14" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div style="font-size:30px;color:var(--navy-ink);font-weight:500;line-height:1.3;">
+          <b>Sin modificar una sola línea</b> del código fuente del servicio.
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>10 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 11 — DESAFÍOS ============== -->
+<section class="slide" data-screen-label="11 Desafios">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>07 · DESAFÍOS Y SOLUCIONES</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">11</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Desafíos y soluciones</div>
+    <h1 class="title">Obstáculos encontrados y cómo se resolvieron</h1>
+
+    <div style="margin-top:48px;flex:1;display:flex;flex-direction:column;gap:0;">
+      <table class="data" style="font-size:22px;">
+        <thead><tr><th style="width:48%;">Obstáculo</th><th>Solución aplicada</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b style="color:var(--navy-ink);">URL Rewrite no instalado y sin internet</b></td>
+            <td><span class="mono navy" style="font-weight:600;">Global.asax</span> con <span class="mono">Application_BeginRequest</span></td>
+          </tr>
+          <tr>
+            <td><b style="color:var(--navy-ink);">web.config fallaba</b> (BOM UTF-8)</td>
+            <td>Escritura con <span class="mono">UTF8Encoding</span> sin BOM</td>
+          </tr>
+          <tr>
+            <td><b style="color:var(--navy-ink);">Default Web Site ocupaba puerto 80</b></td>
+            <td>Separación de sitios: redirect vs. servicio</td>
+          </tr>
+          <tr>
+            <td><b style="color:var(--navy-ink);">Permisos de clave privada SSL</b></td>
+            <td><span class="mono">icacls</span> para acceso a <span class="mono">IIS_IUSRS</span></td>
+          </tr>
+          <tr>
+            <td><b style="color:var(--navy-ink);">requestFiltering bloqueada en IIS</b></td>
+            <td>Desbloqueo via <span class="mono">appcmd</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top:36px;padding:24px 32px;background:var(--paper-2);border-radius:12px;display:flex;align-items:center;gap:20px;">
+        <svg width="36" height="36" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" fill="none" stroke="#1B3A6B" stroke-width="2"/><path d="M20 12 V22 M20 27 V28" stroke="#1B3A6B" stroke-width="2.5" stroke-linecap="round"/></svg>
+        <div style="font-size:22px;color:var(--ink);font-style:italic;">
+          Estos imprevistos demuestran capacidad de resolución de problemas reales en infraestructura productiva.
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>11 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 12 — RESULTADOS ============== -->
+<section class="slide" data-screen-label="12 Resultados">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>08 · RESULTADOS</span></div>
+      <div class="right"><span class="badge green"><span class="dot"></span>DESPUÉS</span><span class="pill"><span class="slide-num">12</span> / 19</span></div>
+    </div>
+    <div class="eyebrow" style="color:var(--green-2);">Resultados</div>
+    <h1 class="title">Estado <span style="color:var(--green-2);">DESPUÉS</span> de la implementación</h1>
+
+    <div style="margin-top:40px;display:grid;grid-template-columns:1.6fr .8fr;gap:40px;flex:1;">
+      <div>
+        <table class="data" style="font-size:19px;">
+          <thead><tr><th style="width:50px;">ID</th><th>Métrica</th><th>Antes</th><th>Después</th><th style="width:60px;text-align:center;">✓/✗</th></tr></thead>
+          <tbody>
+            <tr class="row-ok"><td class="id">M1</td><td>Puertos HTTP expuestos</td><td class="mono muted">Servicio directo</td><td class="mono green" style="font-weight:600;">Solo redirect</td><td style="text-align:center;"><span class="check" style="font-size:22px;">✓</span></td></tr>
+            <tr class="row-ok"><td class="id">M2</td><td>Puertos HTTPS activos</td><td class="mono muted">0</td><td class="mono green" style="font-weight:600;">1 (puerto 443)</td><td style="text-align:center;"><span class="check" style="font-size:22px;">✓</span></td></tr>
+            <tr class="row-ok"><td class="id">M3</td><td>Cabeceras seguridad</td><td class="mono muted">0/4</td><td class="mono green" style="font-weight:600;">4/4</td><td style="text-align:center;"><span class="check" style="font-size:22px;">✓</span></td></tr>
+            <tr class="row-ok"><td class="id">M4</td><td>Verbos bloqueados</td><td class="mono muted">TRACE libre</td><td class="mono green" style="font-weight:600;">TRACE 404</td><td style="text-align:center;"><span class="check" style="font-size:22px;">✓</span></td></tr>
+            <tr class="row-ok"><td class="id">M5</td><td>Código HTTP</td><td class="mono muted">200 OK</td><td class="mono green" style="font-weight:600;">301 Redirect</td><td style="text-align:center;"><span class="check" style="font-size:22px;">✓</span></td></tr>
+            <tr class="row-ok"><td class="id">M6</td><td>HTTPS disponible</td><td class="mono muted">No</td><td class="mono green" style="font-weight:600;">200 OK</td><td style="text-align:center;"><span class="check" style="font-size:22px;">✓</span></td></tr>
+            <tr class="row-ok"><td class="id">M7</td><td>WSDL por HTTP</td><td class="mono muted">Público</td><td class="mono green" style="font-weight:600;">Solo HTTPS</td><td style="text-align:center;"><span class="check" style="font-size:22px;">✓</span></td></tr>
+            <tr class="row-ok"><td class="id">M8</td><td>Certificado SSL</td><td class="mono muted">0 días</td><td class="mono green" style="font-weight:600;">730 días</td><td style="text-align:center;"><span class="check" style="font-size:22px;">✓</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- score panel -->
+      <div style="background:var(--navy-ink);color:#fff;border-radius:18px;padding:36px;display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:center;position:relative;overflow:hidden;">
+        <div style="position:absolute;inset:0;background:radial-gradient(circle at 50% 30%, rgba(39,174,96,.25), transparent 60%);"></div>
+        <div style="position:relative;">
+          <div class="mono" style="font-size:14px;letter-spacing:.22em;color:var(--green);text-transform:uppercase;">Resultado postest</div>
+          <div style="margin-top:18px;font-size:200px;line-height:.95;font-weight:800;color:#fff;letter-spacing:-.04em;">
+            8<span style="color:var(--green);">/8</span>
+          </div>
+          <div style="font-size:22px;color:#fff;margin-top:6px;font-weight:600;">métricas conformes</div>
+          <div style="margin-top:36px;width:100%;height:14px;background:#1f2c44;border-radius:7px;overflow:hidden;">
+            <div style="width:100%;height:100%;background:var(--green);"></div>
+          </div>
+          <div class="mono" style="margin-top:14px;font-size:16px;color:var(--green);">100% CONFORMIDAD</div>
+          <div style="margin-top:30px;font-family:'JetBrains Mono',monospace;font-size:14px;color:#9aa6bd;letter-spacing:.1em;">0% → 100%</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>12 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 13 — EVIDENCIA M5 ============== -->
+<section class="slide" data-screen-label="13 Evidencia M5">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>08 · EVIDENCIA · M5</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">13</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Evidencia · M5 · redirección 301</div>
+    <h1 class="title">HTTP redirige a HTTPS</h1>
+
+    <div style="margin-top:24px;flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">
+      <!-- screenshot ancho completo -->
+      <div style="border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 16px 40px -20px rgba(14,27,46,.2);flex-shrink:0;">
+        <!-- barra URL estilo Postman -->
+        <div style="background:#1e2432;padding:10px 18px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.08);">
+          <span style="background:#f97316;color:#fff;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;padding:4px 12px;border-radius:5px;flex-shrink:0;">GET</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:15px;color:#c9d1e3;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">http://10.1.1.66/TrazBasWebService.svc</span>
+          <span style="background:#3b5bdb;color:#fff;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;padding:4px 12px;border-radius:5px;flex-shrink:0;">301 Moved Permanently</span>
+        </div>
+        <img src="Figura_1_GET_http_10.1.1.66_TrazBasWebService.svc_301_Moved_Permanently.png"
+             alt="Evidencia M5 — GET http → 301 Moved Permanently"
+             style="display:block;width:100%;height:360px;object-fit:cover;object-position:center 52%;">
+      </div>
+      <!-- hallazgos en fila -->
+      <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:16px;align-items:stretch;">
+        <div class="badge green" style="align-self:center;white-space:nowrap;"><span class="dot"></span>M5 · Validado</div>
+        <div class="card" style="padding:16px 20px;">
+          <div class="mono" style="font-size:11px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase;">URL solicitada</div>
+          <div class="mono" style="font-size:15px;margin-top:6px;color:var(--navy-ink);">http://10.1.1.66/TrazBasWebService.svc</div>
+        </div>
+        <div class="card" style="padding:16px 20px;">
+          <div class="mono" style="font-size:11px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase;">Respuesta</div>
+          <div class="mono" style="font-size:17px;font-weight:700;color:var(--navy);margin-top:6px;">301 Moved Permanently</div>
+        </div>
+        <div class="card" style="padding:16px 20px;">
+          <div class="mono" style="font-size:11px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase;">Location header</div>
+          <div class="mono" style="font-size:15px;margin-top:6px;color:var(--navy-ink);">https://10.1.1.66/TrazBasWebService.svc</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>13 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 14 — EVIDENCIA M3 ============== -->
+<section class="slide" data-screen-label="14 Evidencia M3">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>08 · EVIDENCIA · M3</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">14</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Evidencia · M3 · cabeceras de seguridad</div>
+    <h1 class="title">Las 4 cabeceras presentes en respuesta</h1>
+
+    <div style="margin-top:24px;flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">
+      <!-- screenshot ancho completo -->
+      <div style="border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 16px 40px -20px rgba(14,27,46,.2);flex-shrink:0;">
+        <!-- barra URL estilo Postman -->
+        <div style="background:#1e2432;padding:10px 18px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.08);">
+          <span style="background:#f97316;color:#fff;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;padding:4px 12px;border-radius:5px;flex-shrink:0;">GET</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:15px;color:#c9d1e3;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">https://10.1.1.66/TrazBasWebService.svc</span>
+          <span style="background:#2f9e44;color:#fff;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;padding:4px 12px;border-radius:5px;flex-shrink:0;">200 OK</span>
+        </div>
+        <img src="Figura_2_GET_https_10.1.1.66_TrazBasWebService.svc_200_OK_4_cabeceras_seguridad_M3_M6.png"
+             alt="Evidencia M3/M6 — GET https → 200 OK con 4 cabeceras de seguridad"
+             style="display:block;width:100%;height:360px;object-fit:cover;object-position:center 52%;">
+      </div>
+      <!-- hallazgos en fila -->
+      <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:16px;align-items:stretch;">
+        <div class="badge green" style="align-self:center;white-space:nowrap;"><span class="dot"></span>M3 · 4 / 4 cabeceras</div>
+        <div class="card" style="padding:16px 20px;">
+          <div class="mono" style="font-size:11px;letter-spacing:.16em;color:var(--green-2);text-transform:uppercase;">Presentes</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--navy);">
+            <div>strict-transport-security</div>
+            <div>x-frame-options</div>
+            <div>x-content-type-options</div>
+            <div>x-xss-protection</div>
+          </div>
+        </div>
+        <div class="card" style="padding:16px 20px;background:var(--paper-2);">
+          <div class="mono" style="font-size:11px;letter-spacing:.16em;color:var(--red);text-transform:uppercase;">Ausentes (correcto)</div>
+          <div style="margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--muted);">
+            <div>X-Powered-By</div>
+            <div>X-AspNet-Version</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>14 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 15 — EVIDENCIA M7+M4 ============== -->
+<section class="slide" data-screen-label="15 Evidencia M7-M4">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>08 · EVIDENCIA · M7 · M4</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">15</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Evidencia · M7 + M4</div>
+    <h1 class="title">WSDL solo vía HTTPS · TRACE bloqueado</h1>
+
+    <div style="margin-top:24px;flex:1;display:grid;grid-template-columns:1fr 1fr;gap:32px;min-height:0;">
+      <!-- M7: WSDL -->
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0;">
+        <div style="border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 16px 40px -20px rgba(14,27,46,.18);flex:1;min-height:0;display:flex;flex-direction:column;">
+          <!-- barra URL M7 -->
+          <div style="background:#1e2432;padding:9px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;">
+            <span style="background:#f97316;color:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;padding:3px 10px;border-radius:4px;">GET</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#c9d1e3;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">https://10.1.1.66/TrazBasWebService.svc?wsdl</span>
+            <span style="background:#2f9e44;color:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;padding:3px 10px;border-radius:4px;">200 OK</span>
+          </div>
+          <img src="Figura_3_GET_https_10.1.1.66_TrazBasWebService.svc_wsdl_200_OK_WSDL_XML_M7.png"
+               alt="Evidencia M7 — GET ?wsdl → 200 OK WSDL XML"
+               style="display:block;width:100%;flex:1;object-fit:cover;object-position:center 50%;min-height:0;">
+        </div>
+        <div class="badge green" style="align-self:flex-start;"><span class="dot"></span>M7 · WSDL accesible vía HTTPS · 200 OK</div>
+      </div>
+      <!-- M4: TRACE -->
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0;">
+        <div style="border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 16px 40px -20px rgba(14,27,46,.18);flex:1;min-height:0;display:flex;flex-direction:column;">
+          <!-- barra URL M4 -->
+          <div style="background:#1e2432;padding:9px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;">
+            <span style="background:#7048e8;color:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;padding:3px 10px;border-radius:4px;">TRACE</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#c9d1e3;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">https://10.1.1.66/TrazBasWebService.svc</span>
+            <span style="background:#c92a2a;color:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;padding:3px 10px;border-radius:4px;">404 Not Found</span>
+          </div>
+          <img src="Figura_4_TRACE_https_10.1.1.66_TrazBasWebService.svc_404_Not_Found_M4.png"
+               alt="Evidencia M4 — TRACE → 404 Not Found"
+               style="display:block;width:100%;flex:1;object-fit:cover;object-position:center 50%;min-height:0;">
+        </div>
+        <div class="badge red" style="align-self:flex-start;"><span class="dot"></span>M4 · TRACE bloqueado · 404 Not Found</div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>15 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 16 — ANÁLISIS ============== -->
+<section class="slide" data-screen-label="16 Analisis">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>09 · ANÁLISIS</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">16</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Análisis de resultados</div>
+    <h1 class="title">¿Qué significan los resultados?</h1>
+
+    <div style="margin-top:48px;display:grid;grid-template-columns:repeat(3,1fr);gap:32px;flex:1;">
+      <!-- 1 -->
+      <div class="card" style="display:flex;flex-direction:column;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:64px;font-weight:700;color:var(--navy);line-height:1;">01</div>
+        <div style="margin-top:18px;font-size:24px;font-weight:700;color:var(--navy-ink);">La hipótesis se confirmó</div>
+        <div style="margin-top:18px;font-size:20px;line-height:1.45;color:var(--ink);border-left:3px solid var(--green);padding-left:18px;">
+          Es posible implementar HTTPS en un servicio WCF legacy <b>sin tocar el código fuente</b>.
+        </div>
+      </div>
+      <!-- 2 -->
+      <div class="card" style="display:flex;flex-direction:column;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:64px;font-weight:700;color:var(--navy);line-height:1;">02</div>
+        <div style="margin-top:18px;font-size:24px;font-weight:700;color:var(--navy-ink);">Cumplimiento OWASP A02:2021</div>
+        <div style="margin-top:18px;font-size:20px;line-height:1.45;color:var(--ink);border-left:3px solid var(--green);padding-left:18px;">
+          La vulnerabilidad <i>Cryptographic Failures</i> fue eliminada: toda comunicación viaja <b>cifrada por TLS</b>.
+        </div>
+      </div>
+      <!-- 3 -->
+      <div class="card" style="display:flex;flex-direction:column;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:64px;font-weight:700;color:var(--navy);line-height:1;">03</div>
+        <div style="margin-top:18px;font-size:24px;font-weight:700;color:var(--navy-ink);">Reducción de superficie de ataque</div>
+        <div class="col" style="gap:10px;margin-top:18px;font-size:18px;line-height:1.4;color:var(--ink);">
+          <div style="display:flex;gap:10px;"><span class="check">›</span><span>WSDL ya no expuesto en HTTP plano</span></div>
+          <div style="display:flex;gap:10px;"><span class="check">›</span><span>Información tecnológica suprimida</span></div>
+          <div style="display:flex;gap:10px;"><span class="check">›</span><span>Verbo TRACE bloqueado a nivel IIS</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- limitation strip -->
+    <div style="margin-top:36px;background:#fdf6e7;border-left:6px solid var(--amber);border-radius:8px;padding:24px 32px;display:flex;align-items:center;gap:24px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.18em;color:#8a6512;text-transform:uppercase;font-weight:700;">Limitación identificada</div>
+      <div style="font-size:22px;color:var(--ink);"><b class="mono">TLS 1.0</b> en uso → recomendación: migrar a <b class="mono">TLS 1.2 / 1.3</b> en producción.</div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>16 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 17 — CONCLUSIONES ============== -->
+<section class="slide" data-screen-label="17 Conclusiones">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>10 · CONCLUSIONES</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">17</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Conclusiones</div>
+    <h1 class="title">Lo que se logró</h1>
+
+    <div style="margin-top:48px;display:grid;grid-template-columns:.85fr 1.15fr;gap:64px;flex:1;">
+      <!-- big metric -->
+      <div style="background:var(--navy-ink);color:#fff;border-radius:18px;padding:48px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;">
+        <div style="position:absolute;inset:0;background:radial-gradient(circle at 80% 20%, rgba(39,174,96,.18), transparent 60%);"></div>
+        <div style="position:relative;">
+          <div class="mono" style="font-size:14px;letter-spacing:.22em;color:var(--green);text-transform:uppercase;">Conformidad</div>
+          <div style="margin-top:24px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+            <span style="font-size:96px;font-weight:800;color:#9aa6bd;letter-spacing:-.04em;">0%</span>
+            <span style="color:var(--green);font-size:40px;">→</span>
+            <span style="font-size:108px;font-weight:800;color:var(--green);letter-spacing:-.04em;">100%</span>
+          </div>
+          <div style="margin-top:16px;font-size:28px;color:#fff;font-weight:500;">8 / 8 métricas alcanzaron el objetivo</div>
+        </div>
+      </div>
+
+      <!-- list -->
+      <div class="col" style="gap:18px;justify-content:center;">
+        <div style="display:flex;gap:22px;align-items:flex-start;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;">01</span><span style="font-size:24px;line-height:1.4;color:var(--ink);"><b>8 / 8 métricas</b> alcanzaron el valor objetivo (0% → 100%).</span></div>
+        <div style="display:flex;gap:22px;align-items:flex-start;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;">02</span><span style="font-size:24px;line-height:1.4;color:var(--ink);">Implementación íntegra <b>por configuración</b>, sin modificar el código fuente WCF.</span></div>
+        <div style="display:flex;gap:22px;align-items:flex-start;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;">03</span><span style="font-size:24px;line-height:1.4;color:var(--ink);">TLS cifra <b>toda la comunicación</b> entre Trasbaz y TrazCloud, eliminando el riesgo de intercepción.</span></div>
+        <div style="display:flex;gap:22px;align-items:flex-start;padding:18px 0;border-bottom:1px solid var(--line);"><span class="num-circle" style="width:36px;height:36px;font-size:14px;background:var(--green);">04</span><span style="font-size:24px;line-height:1.4;color:var(--ink);">Las <b>4 cabeceras de seguridad</b> protegen contra clickjacking, MIME sniffing, XSS y downgrade.</span></div>
+        <div style="display:flex;gap:22px;align-items:flex-start;padding:18px 0;"><span class="num-circle" style="width:36px;height:36px;font-size:14px;background:var(--green);">05</span><span style="font-size:24px;line-height:1.4;color:var(--ink);">Se entrega una <b>guía de producción</b> lista para replicar en el servidor <span class="mono">10.0.0.4</span>.</span></div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>17 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 18 — RECOMENDACIONES ============== -->
+<section class="slide" data-screen-label="18 Recomendaciones">
+  <div class="chrome">
+    <div class="topbar">
+      <div class="left"><span class="brand-mark"></span><span>10 · RECOMENDACIONES</span></div>
+      <div class="right"><span class="pill"><span class="slide-num">18</span> / 19</span></div>
+    </div>
+    <div class="eyebrow">Recomendaciones · trabajo futuro</div>
+    <h1 class="title">Próximos pasos sugeridos</h1>
+
+    <div style="margin-top:48px;flex:1;display:flex;flex-direction:column;gap:18px;">
+      <div style="display:grid;grid-template-columns:180px 1fr 240px;gap:32px;align-items:center;background:#fff;border:1px solid var(--line);border-left:8px solid var(--red);border-radius:12px;padding:26px 32px;">
+        <div style="display:flex;align-items:center;gap:12px;"><span style="width:14px;height:14px;border-radius:50%;background:var(--red);"></span><span class="mono" style="font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--red);font-weight:700;">Alta</span></div>
+        <div style="font-size:24px;color:var(--navy-ink);">Deshabilitar <b class="mono">TLS 1.0 / 1.1</b>, habilitar solo <b class="mono">TLS 1.2 y 1.3</b>.</div>
+        <div class="mono muted" style="font-size:15px;text-align:right;">Servidor producción</div>
+      </div>
+      <div style="display:grid;grid-template-columns:180px 1fr 240px;gap:32px;align-items:center;background:#fff;border:1px solid var(--line);border-left:8px solid var(--red);border-radius:12px;padding:26px 32px;">
+        <div style="display:flex;align-items:center;gap:12px;"><span style="width:14px;height:14px;border-radius:50%;background:var(--red);"></span><span class="mono" style="font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--red);font-weight:700;">Alta</span></div>
+        <div style="font-size:24px;color:var(--navy-ink);">Reemplazar certificado autofirmado por <b>CA corporativa</b> en producción.</div>
+        <div class="mono muted" style="font-size:15px;text-align:right;">PKI interna</div>
+      </div>
+      <div style="display:grid;grid-template-columns:180px 1fr 240px;gap:32px;align-items:center;background:#fff;border:1px solid var(--line);border-left:8px solid var(--amber);border-radius:12px;padding:26px 32px;">
+        <div style="display:flex;align-items:center;gap:12px;"><span style="width:14px;height:14px;border-radius:50%;background:var(--amber);"></span><span class="mono" style="font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:#8a6512;font-weight:700;">Media</span></div>
+        <div style="font-size:24px;color:var(--navy-ink);">Implementar <b>alerta automática</b> de expiración de certificado (&lt; 30 días).</div>
+        <div class="mono muted" style="font-size:15px;text-align:right;">Monitoreo</div>
+      </div>
+      <div style="display:grid;grid-template-columns:180px 1fr 240px;gap:32px;align-items:center;background:#fff;border:1px solid var(--line);border-left:8px solid var(--amber);border-radius:12px;padding:26px 32px;">
+        <div style="display:flex;align-items:center;gap:12px;"><span style="width:14px;height:14px;border-radius:50%;background:var(--amber);"></span><span class="mono" style="font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:#8a6512;font-weight:700;">Media</span></div>
+        <div style="font-size:24px;color:var(--navy-ink);">Agregar cabecera <b class="mono">Content-Security-Policy</b>.</div>
+        <div class="mono muted" style="font-size:15px;text-align:right;">web.config</div>
+      </div>
+      <div style="display:grid;grid-template-columns:180px 1fr 240px;gap:32px;align-items:center;background:#fff;border:1px solid var(--line);border-left:8px solid var(--green);border-radius:12px;padding:26px 32px;">
+        <div style="display:flex;align-items:center;gap:12px;"><span style="width:14px;height:14px;border-radius:50%;background:var(--green);"></span><span class="mono" style="font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--green-2);font-weight:700;">Baja</span></div>
+        <div style="font-size:24px;color:var(--navy-ink);">Evaluar <b>autenticación de cliente WCF</b> con certificado mutuo.</div>
+        <div class="mono muted" style="font-size:15px;text-align:right;">mTLS</div>
+      </div>
+    </div>
+
+    <div class="footer"><span>TrazBasProxyService · HTTPS/TLS</span><span class="bar"></span><span>18 / 19</span></div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 19 — CIERRE ============== -->
+<section class="slide" data-screen-label="19 Cierre" style="background:var(--navy-ink);color:#fff;">
+  <svg viewBox="0 0 1920 1080" style="position:absolute;inset:0;width:100%;height:100%;opacity:.18;" preserveAspectRatio="none">
+    <defs>
+      <pattern id="g2" width="80" height="80" patternUnits="userSpaceOnUse">
+        <path d="M 80 0 L 0 0 0 80" fill="none" stroke="#3a4a6b" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#g2)"/>
+  </svg>
+  <div style="position:absolute;left:0;top:0;width:14px;height:100%;background:var(--green);"></div>
+
+  <div class="chrome" style="padding:100px 130px;">
+    <div class="topbar" style="border-color:rgba(255,255,255,.12);color:#9aa6bd;">
+      <div class="left">
+        <span class="brand-mark" style="background:#fff;"></span>
+        <span style="color:#fff;letter-spacing:.2em;font-weight:600;">MINEX</span>
+        <span style="color:#9aa6bd;">·</span>
+        <span>CIERRE</span>
+      </div>
+      <div class="right"><span class="pill" style="border-color:rgba(255,255,255,.18);color:#9aa6bd;"><span style="color:#fff;font-weight:600;">19</span> / 19</span></div>
+    </div>
+
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:20px;letter-spacing:.22em;color:var(--green);text-transform:uppercase;">Gracias</div>
+      <div style="margin-top:48px;max-width:1500px;font-size:84px;line-height:1.1;font-weight:300;color:#fff;letter-spacing:-.02em;">
+        <span style="color:var(--green);font-family:Georgia,serif;font-size:140px;line-height:0;vertical-align:-50px;font-weight:400;">"</span>
+        La seguridad no es un producto,<br>
+        es <span style="color:var(--green);font-weight:600;">un proceso</span>.<span style="color:var(--green);font-family:Georgia,serif;font-size:140px;line-height:0;vertical-align:-50px;font-weight:400;">"</span>
+      </div>
+      <div style="margin-top:36px;font-family:'JetBrains Mono',monospace;font-size:20px;letter-spacing:.12em;color:#9aa6bd;text-transform:uppercase;">— Bruce Schneier</div>
+    </div>
+
+    <div style="position:absolute;left:130px;right:130px;bottom:90px;display:grid;grid-template-columns:repeat(3,1fr) auto;gap:48px;align-items:end;">
+      <div>
+        <div class="mono" style="font-size:13px;letter-spacing:.18em;color:#9aa6bd;text-transform:uppercase;">Autor</div>
+        <div style="font-size:24px;color:#fff;margin-top:8px;font-weight:600;">Mario Andres Testa Vargas</div>
+      </div>
+      <div>
+        <div class="mono" style="font-size:13px;letter-spacing:.18em;color:#9aa6bd;text-transform:uppercase;">Institución</div>
+        <div style="font-size:24px;color:#fff;margin-top:8px;font-weight:600;">Minex · Politecnico Grancolombiano</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:32px;font-weight:300;color:#fff;">¿Preguntas?</div>
+        <div style="margin-top:8px;width:120px;height:3px;background:var(--green);margin-left:auto;"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /slides-rail -->
+
+<!-- ── Navigation Controls ──────────────────── -->
+<div id="nav-controls">
+  <button class="nav-btn" id="btn-prev" aria-label="Diapositiva anterior">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M8.5 2L3.5 6.5L8.5 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <span id="slide-counter">1 / 19</span>
+  <button class="nav-btn" id="btn-next" aria-label="Siguiente diapositiva">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M4.5 2L9.5 6.5L4.5 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <span id="key-hint">&#8592; &#8594; ESPACIO</span>
+</div>
+<div id="progress-bar"><div id="progress-fill"></div></div>
+
+</div><!-- /deck -->
+
+<!-- ── Presentation Engine ───────────────────── -->
+<script>
+(function(){
+  'use strict';
+
+  var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var DURATION      = reducedMotion ? 0 : 460;
+
+  var rail    = document.getElementById('slides-rail');
+  var slides  = [].slice.call(document.querySelectorAll('.slide'));
+  var counter = document.getElementById('slide-counter');
+  var fill    = document.getElementById('progress-fill');
+  var btnPrev = document.getElementById('btn-prev');
+  var btnNext = document.getElementById('btn-next');
+
+  var current = 0;
+  var busy    = false;
+  var total   = slides.length;
+
+  /* Scale rail to fit viewport */
+  function scaleRail() {
+    var s  = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    var tx = (window.innerWidth  - 1920 * s) / 2;
+    var ty = (window.innerHeight - 1080 * s) / 2;
+    rail.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + s + ')';
+  }
+
+  /* Initialize all slides */
+  function initSlides() {
+    slides.forEach(function(s, i) {
+      s.style.transition = 'none';
+      s.style.opacity    = i === 0 ? '1' : '0';
+      s.style.transform  = i === 0 ? 'translateX(0)' : 'translateX(1920px)';
+      s.style.visibility = i === 0 ? 'visible' : 'hidden';
+      if (i === 0) s.classList.add('is-active');
+    });
+  }
+
+  /* Update counter, progress bar, and button states */
+  function updateUI() {
+    counter.textContent = (current + 1) + ' / ' + total;
+    fill.style.width    = ((current + 1) / total * 100) + '%';
+    btnPrev.disabled    = current === 0;
+    btnNext.disabled    = current === total - 1;
+  }
+
+  /* Animate to slide at idx */
+  function goTo(idx) {
+    if (busy || idx < 0 || idx >= total || idx === current) return;
+    busy = true;
+
+    var dir  = idx > current ? 1 : -1;
+    var prev = slides[current];
+    var next = slides[idx];
+
+    /* Snap next into starting position (no animation) */
+    next.style.transition = 'none';
+    next.style.transform  = dir > 0 ? 'translateX(1920px)' : 'translateX(-1920px)';
+    next.style.opacity    = '0';
+    next.style.visibility = 'visible';
+    next.classList.add('is-active');
+
+    /* Force layout so the snap is committed before animating */
+    next.getBoundingClientRect();
+
+    var tCSS = 'transform ' + DURATION + 'ms cubic-bezier(.22,1,.36,1), opacity ' + Math.round(DURATION * .62) + 'ms ease-out';
+
+    requestAnimationFrame(function() {
+      prev.style.transition = tCSS;
+      next.style.transition = tCSS;
+
+      /* Current slide retreats (parallax depth) */
+      prev.style.transform = dir > 0 ? 'translateX(-140px)' : 'translateX(140px)';
+      prev.style.opacity   = '0';
+
+      /* Next slide glides in */
+      next.style.transform = 'translateX(0)';
+      next.style.opacity   = '1';
+
+      setTimeout(function() {
+        prev.style.transition = 'none';
+        prev.style.transform  = dir > 0 ? 'translateX(-1920px)' : 'translateX(1920px)';
+        prev.style.visibility = 'hidden';
+        prev.classList.remove('is-active');
+
+        current = idx;
+        busy    = false;
+        updateUI();
+      }, DURATION + 40);
+    });
+  }
+
+  /* Boot */
+  scaleRail();
+  initSlides();
+  updateUI();
+  window.addEventListener('resize', scaleRail);
+
+  /* Keyboard navigation */
+  document.addEventListener('keydown', function(e) {
+    switch (e.key) {
+      case 'ArrowRight': case ' ': case 'PageDown': e.preventDefault(); goTo(current + 1); break;
+      case 'ArrowLeft':  case 'PageUp':             e.preventDefault(); goTo(current - 1); break;
+      case 'Home': e.preventDefault(); goTo(0);         break;
+      case 'End':  e.preventDefault(); goTo(total - 1); break;
+    }
+  });
+
+  /* Button clicks */
+  btnPrev.addEventListener('click', function() { goTo(current - 1); });
+  btnNext.addEventListener('click', function() { goTo(current + 1); });
+
+  /* Touch swipe */
+  var touchX = 0;
+  document.addEventListener('touchstart', function(e) { touchX = e.touches[0].clientX; }, {passive: true});
+  document.addEventListener('touchend',   function(e) {
+    var dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) > 55) goTo(current + (dx < 0 ? 1 : -1));
+  }, {passive: true});
+
+})();
+</script>
+
+</body>
+</html>
